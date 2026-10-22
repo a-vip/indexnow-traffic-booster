@@ -1,0 +1,61 @@
+name: IndexNow Search Engine Traffic Booster
+
+on:
+  schedule:
+    # Run 4 times daily (every 6 hours)
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      force_all:
+        description: 'Force submit all URLs regardless of history'
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        description: 'Perform dry-run simulation'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  boost-indexing:
+    name: Crawl, Detect & Notify IndexNow Engines
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run Unit Tests
+        run: |
+          python -m unittest discover tests
+
+      - name: Execute IndexNow Engine
+        env:
+          SITE_HOST: "aviperera.com"
+          INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
+          INDEXNOW_KEY_LOCATION: ${{ secrets.INDEXNOW_KEY_LOCATION }}
+        run: |
+          FLAGS=""
+          if [ "${{ inputs.force_all }}" = "true" ]; then
+            FLAGS="$FLAGS --force-all"
+          fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            FLAGS="$FLAGS --dry-run"
+          fi
+          python indexnow_engine.py $FLAGS
+
+      - name: Commit Updated State
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add state/submitted_urls.json
+          git diff --staged --quiet || (git commit -m "chore(seo): update indexed URLs state" && git push)
