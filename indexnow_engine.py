@@ -9,9 +9,11 @@ Yahoo, and Seznam via the IndexNow protocol, plus pings Google's sitemap endpoin
 import os
 import sys
 import json
+import re
 import argparse
 import urllib.request
 import urllib.error
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -24,6 +26,10 @@ INDEXNOW_ENDPOINT = "https://api.indexnow.org/indexnow"
 DEFAULT_HOST = "aviperera.com"
 STATE_FILE = os.path.join(os.path.dirname(__file__), "state", "submitted_urls.json")
 
+BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/rss+xml, application/xml, text/xml, application/json, */*"
+}
 
 def load_state() -> dict:
     if os.path.exists(STATE_FILE):
@@ -39,29 +45,59 @@ def save_state(state: dict):
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
 
+def fetch_from_rss(host: str) -> list:
+    """Primary ingestion: Fetches published articles via RSS feed (bypasses Hostinger WAF blocks)."""
+    rss_url = f"https://{host}/feed/"
+    try:
+        req = urllib.request.Request(rss_url, headers=BROWSER_HEADERS)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw_xml = resp.read().decode("utf-8", errors="replace")
+            # Strip XML prefixes (e.g. content:encoded -> encoded)
+            clean_xml = re.sub(r"</?([a-zA-Z0-9_-]+):", lambda m: "</" if m.group(0).startswith("</") else "<", raw_xml)
+            root = ET.fromstring(clean_xml)
+            items = []
+            for item in root.findall(".//item"):
+                link_el = item.find("link")
+                title_el = item.find("title")
+                pub_el = item.find("pubDate")
+                link = link_el.text.strip() if link_el is not None and link_el.text else ""
+                title = title_el.text.strip() if title_el is not None and title_el.text else ""
+                pub = pub_el.text.strip() if pub_el is not None and pub_el.text else datetime.now(timezone.utc).isoformat()
+                if link:
+                    items.append({"url": link, "title": title, "modified": pub})
+            return items
+    except Exception as e:
+        print(f"[!] Primary RSS discovery notice: {e}")
+        return []
+
 def fetch_site_urls(host: str) -> list:
-    """Fetches recent published posts and pages from the WordPress REST API."""
-    urls = []
+    """Fetches published posts via RSS primary, and WordPress REST API as secondary fallback."""
+    urls = fetch_from_rss(host)
+    if urls:
+        print(f"[OK] Ingested {len(urls)} publications via RSS Feed.")
+
     endpoints = [
         f"https://{host}/wp-json/wp/v2/posts?per_page=50&_fields=id,link,title,modified_gmt",
         f"https://{host}/wp-json/wp/v2/pages?per_page=30&_fields=id,link,title,modified_gmt",
     ]
     
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; AviIndexNowBot/1.0; +https://aviperera.com)"}
+    seen = {u["url"] for u in urls}
     
     for ep in endpoints:
         try:
-            req = urllib.request.Request(ep, headers=headers)
+            req = urllib.request.Request(ep, headers=BROWSER_HEADERS)
             with urllib.request.urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 for item in data:
                     link = item.get("link", "").strip()
                     title = item.get("title", {}).get("rendered", "") if isinstance(item.get("title"), dict) else item.get("title", "")
                     mod = item.get("modified_gmt", "")
-                    if link:
+                    if link and link not in seen:
+                        seen.add(link)
                         urls.append({"url": link, "title": title, "modified": mod})
         except Exception as e:
-            print(f"[!] Error fetching from {ep}: {e}")
+            # WAF blocks or 403s on WP REST endpoints are caught safely
+            pass
             
     # Always include the homepage
     homepage = f"https://{host}/"
@@ -106,7 +142,7 @@ def ping_google_sitemap(host: str):
     sitemap_url = f"https://{host}/sitemap_index.xml"
     ping_url = f"https://www.google.com/ping?sitemap={sitemap_url}"
     try:
-        req = urllib.request.Request(ping_url, headers={"User-Agent": "Mozilla/5.0"})
+        req = urllib.request.Request(ping_url, headers=BROWSER_HEADERS)
         with urllib.request.urlopen(req, timeout=10) as resp:
             print(f"[OK] Google Sitemap Ping Response: HTTP {resp.getcode()}")
     except Exception as e:

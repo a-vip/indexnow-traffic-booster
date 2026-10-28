@@ -35,5 +35,26 @@ class TestIndexNowEngine(unittest.TestCase):
         self.assertTrue(result)
         self.assertTrue(mock_urlopen.called)
 
+    @patch("urllib.request.urlopen")
+    def test_fetch_from_rss(self, mock_urlopen):
+        sample_rss = """<?xml version="1.0" encoding="UTF-8"?>
+        <rss version="2.0">
+            <channel>
+                <item>
+                    <title>AI Governance and Ethics</title>
+                    <link>https://aviperera.com/ai-governance-ethics/</link>
+                    <pubDate>Mon, 28 Oct 2026 00:00:00 +0000</pubDate>
+                </item>
+            </channel>
+        </rss>"""
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = sample_rss.encode("utf-8")
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+        items = indexnow_engine.fetch_from_rss("aviperera.com")
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["url"], "https://aviperera.com/ai-governance-ethics/")
+        self.assertEqual(items[0]["title"], "AI Governance and Ethics")
+
 if __name__ == "__main__":
     unittest.main()
