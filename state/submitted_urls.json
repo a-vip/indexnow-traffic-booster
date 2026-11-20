@@ -361,9 +361,9 @@
       "submitted_at": "2026-10-28T10:41:29.863198+00:00"
     },
     "https://aviperera.com/": {
-      "title": "Homepage",
-      "modified": "2026-10-29T12:16:12.071731+00:00",
-      "submitted_at": "2026-10-29T12:16:12.071770+00:00"
+      "title": "Home",
+      "modified": "2026-11-20T21:51:55",
+      "submitted_at": "2026-11-20T23:39:38.190401+00:00"
     },
     "https://aviperera.com/wall-of-shame/": {
       "title": "Wall of Shame",
@@ -881,5 +881,5 @@
       "submitted_at": "2026-11-20T00:17:03.275854+00:00"
     }
   },
-  "last_run": "2026-11-20T00:17:03.275854+00:00"
+  "last_run": "2026-11-20T23:39:38.190401+00:00"
 }
